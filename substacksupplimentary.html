@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AGI Safety vs. Capability Growth Simulation (Advanced)</title>
+    <!-- Using Chart.js for plotting -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.1.1/dist/chart.umd.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f9f9f9;
+        }
+        h1, h2, h3 {
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            background: #fff;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 1rem;
+        }
+        .controls label {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            font-size: 0.9rem;
+            margin: 0.5rem 0;
+        }
+        .controls input {
+            margin-top: 0.25rem;
+        }
+        .charts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+        canvas {
+            background: #fff;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            width: 100% !important;
+            height: 400px !important;
+        }
+        .info {
+            margin-top: 1rem;
+            background: #fff;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 1rem;
+        }
+        .btn {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            background: #2196f3;
+            color: #fff;
+            border: none;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .btn:hover {
+            background: #1976d2;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>AGI Safety vs. Capability Growth Simulation (Advanced)</h1>
+    <p>
+        This simulation explores a multi-developer scenario where each developer's AGI capability grows according to recursive
+        self-improvement, while safety measures lag behind due to diminishing returns. It also includes a rudimentary deception/trust
+        model, allowing you to experiment with how misreporting state might affect overall coordination.
+    </p>
+
+    <!-- Control Panel -->
+    <div class="controls">
+        <label>
+            Number of Developers (2-5)
+            <input type="number" id="numDevelopers" min="2" max="5" value="3" />
+        </label>
+        <label>
+            Alpha (Self-Improvement Rate)
+            <input type="range" id="alpha" min="1.0" max="2.5" step="0.1" value="1.5" />
+        </label>
+        <label>
+            Beta (Safety Efficiency)
+            <input type="range" id="beta" min="0.1" max="1.0" step="0.1" value="0.5" />
+        </label>
+        <label>
+            k (Safety Investment Factor)
+            <input type="range" id="k" min="0.1" max="1.0" step="0.1" value="0.5" />
+        </label>
+        <label>
+            r (Base Research Investment)
+            <input type="range" id="r" min="0.1" max="2.0" step="0.1" value="1.0" />
+        </label>
+        <label>
+            Deception Factor (0=honest,1=max)
+            <input type="range" id="deception" min="0.0" max="1.0" step="0.1" value="0.0" />
+        </label>
+        <label>
+            Time Steps
+            <input type="number" id="timeSteps" min="50" max="10000" step="50" value="500" />
+        </label>
+        <label>
+            dt (Step Size)
+            <input type="number" id="dt" step="0.01" value="0.1" />
+        </label>
+        <button class="btn" onclick="startSimulation()">Start Simulation</button>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts">
+        <canvas id="capabilityChart"></canvas>
+        <canvas id="safetyChart"></canvas>
+        <canvas id="ratioChart"></canvas>
+        <canvas id="coordChart"></canvas>
+    </div>
+
+    <div class="info" id="infoBox">
+        <h2>Simulation Results</h2>
+        <p id="summary"></p>
+    </div>
+
+</div>
+
+<script>
+    // Chart instances
+    let capabilityChart, safetyChart, ratioChart, coordChart;
+
+    // We'll store color sets for up to 5 developers
+    const colorPalette = [
+        'rgba(255,99,132,1)',
+        'rgba(54,162,235,1)',
+        'rgba(255,206,86,1)',
+        'rgba(75,192,192,1)',
+        'rgba(153,102,255,1)'
+    ];
+
+    // Function to start the simulation
+    function startSimulation() {
+        // Destroy existing charts if present
+        if (capabilityChart) capabilityChart.destroy();
+        if (safetyChart) safetyChart.destroy();
+        if (ratioChart) ratioChart.destroy();
+        if (coordChart) coordChart.destroy();
+
+        // Read parameters
+        const numDevelopers = parseInt(document.getElementById('numDevelopers').value);
+        const alpha = parseFloat(document.getElementById('alpha').value);
+        const beta = parseFloat(document.getElementById('beta').value);
+        const kVal = parseFloat(document.getElementById('k').value);
+        const rVal = parseFloat(document.getElementById('r').value);
+        const deceptionFactor = parseFloat(document.getElementById('deception').value);
+        const steps = parseInt(document.getElementById('timeSteps').value);
+        const dt = parseFloat(document.getElementById('dt').value);
+
+        // Initialize arrays for each developer
+        let C = [], s = [], rInvest = [], trust = [];
+        // We'll store arrays of data for plotting over time
+        let timeData = [];
+        let capabilityData = [];
+        let safetyData = [];
+        let ratioData = [];
+        let coordData = [];
+
+        // Initialize dev states
+        for (let i = 0; i < numDevelopers; i++) {
+            C.push(1.0); // start capability at 1
+            s.push(1.0); // start safety at 1
+            rInvest.push(rVal); // base research investment
+        }
+
+        // We'll simulate a trust matrix, though we won't do a full Byzantine model,
+        // but let's track each dev's trust in others as a simple measure.
+        // trust[i][j] = i's trust in j
+        for (let i = 0; i < numDevelopers; i++) {
+            trust[i] = [];
+            for (let j = 0; j < numDevelopers; j++) {
+                if (i === j) {
+                    trust[i][j] = 1.0; // self-trust
+                } else {
+                    trust[i][j] = 1.0; // start at max trust
+                }
+            }
+        }
+
+        // Probability that the group as a whole coordinates safely
+        // We'll define a simple approach: if average ratio (C/s) < threshold, and average trust > threshold => coordinate
+        const ratioThreshold = 20;  // arbitrary
+        const trustThreshold = 0.75; // arbitrary
+
+        for (let stepIdx = 0; stepIdx < steps; stepIdx++) {
+            let tCurrent = stepIdx * dt;
+            timeData.push(tCurrent);
+
+            // Update each developer's states
+            for (let i = 0; i < numDevelopers; i++) {
+                // capability derivative
+                let dC = rInvest[i] * Math.pow(C[i], alpha);
+                // safety derivative
+                let dS = kVal * Math.pow(Math.abs(dC), beta);
+
+                // Update capability
+                C[i] += dC * dt;
+                // Update safety
+                s[i] += dS * dt;
+            }
+
+            // Deception: each dev misreports capability => reported = actual * (1 - deceptionFactor)
+            // If difference between reported & actual is large => degrade trust
+            for (let i = 0; i < numDevelopers; i++) {
+                for (let j = 0; j < numDevelopers; j++) {
+                    if (i !== j) {
+                        let reported = C[j] * (1 - deceptionFactor);
+                        let actual = C[j];
+                        let diff = Math.abs(reported - actual);
+                        if (diff > 0.1) {
+                            // degrade trust
+                            trust[i][j] -= 0.001 * diff; // degrade trust based on deception
+                            if (trust[i][j] < 0) trust[i][j] = 0;
+                        } else {
+                            // small difference => trust recovers slightly
+                            trust[i][j] += 0.0001;
+                            if (trust[i][j] > 1) trust[i][j] = 1;
+                        }
+                    }
+                }
+            }
+
+            // gather data for plotting
+            // 1) capability data for each dev
+            if (!capabilityData[0]) {
+                for (let i = 0; i < numDevelopers; i++) {
+                    capabilityData[i] = [];
+                }
+            }
+            for (let i = 0; i < numDevelopers; i++) {
+                capabilityData[i].push(C[i]);
+            }
+
+            // 2) safety data for each dev
+            if (!safetyData[0]) {
+                for (let i = 0; i < numDevelopers; i++) {
+                    safetyData[i] = [];
+                }
+            }
+            for (let i = 0; i < numDevelopers; i++) {
+                safetyData[i].push(s[i]);
+            }
+
+            // 3) ratio data (C[i]/s[i]) for each dev
+            if (!ratioData[0]) {
+                for (let i = 0; i < numDevelopers; i++) {
+                    ratioData[i] = [];
+                }
+            }
+            for (let i = 0; i < numDevelopers; i++) {
+                ratioData[i].push(C[i] / s[i]);
+            }
+
+            // 4) global coord probability
+            // define a measure: average ratio, average trust
+            let avgRatio = 0;
+            let avgTrust = 0;
+            let totalTrustCount = 0;
+            for (let i = 0; i < numDevelopers; i++) {
+                avgRatio += (C[i] / s[i]);
+                for (let j = 0; j < numDevelopers; j++) {
+                    if (i !== j) {
+                        avgTrust += trust[i][j];
+                        totalTrustCount++;
+                    }
+                }
+            }
+            avgRatio /= numDevelopers;
+            avgTrust /= totalTrustCount;
+
+            let pCoord = 1.0;
+            if (avgRatio > ratioThreshold) {
+                // too large => fail to coordinate
+                pCoord *= 0.0;
+            }
+            if (avgTrust < trustThreshold) {
+                pCoord *= 0.0;
+            }
+
+            coordData.push(pCoord);
+        }
+
+        // Once simulation is done, let's create charts
+        // 1) Capability Chart
+        let capCtx = document.getElementById('capabilityChart').getContext('2d');
+        const capDatasets = [];
+        for (let i = 0; i < numDevelopers; i++) {
+            capDatasets.push({
+                label: `Dev ${i} Capability`,
+                data: capabilityData[i],
+                borderColor: colorPalette[i],
+                fill: false,
+            });
+        }
+        capabilityChart = new Chart(capCtx, {
+            type: 'line',
+            data: {
+                labels: timeData,
+                datasets: capDatasets
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Time' } },
+                    y: { title: { display: true, text: 'Capability' }, type: 'linear', beginAtZero: true }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'AGI Capability Over Time'
+                    }
+                }
+            }
+        });
+
+        // 2) Safety Chart
+        let safeCtx = document.getElementById('safetyChart').getContext('2d');
+        const safeDatasets = [];
+        for (let i = 0; i < numDevelopers; i++) {
+            safeDatasets.push({
+                label: `Dev ${i} Safety`,
+                data: safetyData[i],
+                borderColor: colorPalette[i],
+                fill: false,
+            });
+        }
+        safetyChart = new Chart(safeCtx, {
+            type: 'line',
+            data: {
+                labels: timeData,
+                datasets: safeDatasets
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Time' } },
+                    y: { title: { display: true, text: 'Safety Level' }, type: 'linear', beginAtZero: true }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Safety Measures Over Time'
+                    }
+                }
+            }
+        });
+
+        // 3) Ratio Chart
+        let ratioCtx = document.getElementById('ratioChart').getContext('2d');
+        const ratioDatasets = [];
+        for (let i = 0; i < numDevelopers; i++) {
+            ratioDatasets.push({
+                label: `Dev ${i} C/S Ratio`,
+                data: ratioData[i],
+                borderColor: colorPalette[i],
+                fill: false,
+            });
+        }
+        ratioChart = new Chart(ratioCtx, {
+            type: 'line',
+            data: {
+                labels: timeData,
+                datasets: ratioDatasets
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Time' } },
+                    y: { title: { display: true, text: 'Capability/Safety' }, type: 'linear', beginAtZero: true }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Capability-to-Safety Ratio'
+                    }
+                }
+            }
+        });
+
+        // 4) Coordination Probability Chart
+        let coordCtx = document.getElementById('coordChart').getContext('2d');
+        coordChart = new Chart(coordCtx, {
+            type: 'line',
+            data: {
+                labels: timeData,
+                datasets: [
+                    {
+                        label: 'Global Coordination Probability',
+                        data: coordData,
+                        borderColor: 'rgba(0,0,0,1)',
+                        fill: false,
+                    },
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Time' } },
+                    y: { title: { display: true, text: 'Coordination Probability' }, min: 0, max: 1 }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Probability of Successful Global Coordination'
+                    }
+                }
+            }
+        });
+
+        // Summary text
+        let finalCoord = coordData[coordData.length - 1];
+        let summaryEl = document.getElementById('summary');
+        summaryEl.innerHTML = `Simulation complete. Final coordination probability: ${finalCoord.toFixed(3)}`;
+    }
+</script>
+
+</body>
+</html>
